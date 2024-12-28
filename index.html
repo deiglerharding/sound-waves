@@ -63,49 +63,9 @@
             font-size: 16px;
             color: #333;
         }
-
-        .permission-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.8);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-        }
-
-        .permission-dialog {
-            background: white;
-            padding: 2rem;
-            border-radius: 8px;
-            text-align: center;
-            max-width: 400px;
-        }
-
-        .permission-button {
-            margin-top: 1rem;
-            padding: 10px 20px;
-            font-size: 16px;
-            cursor: pointer;
-            background-color: #007bff;
-            color: white;
-            border: none;
-            border-radius: 4px;
-        }
     </style>
 </head>
 <body>
-    <div id="permissionOverlay" class="permission-overlay" style="display: none;">
-        <div class="permission-dialog">
-            <h2>Microphone Access Required</h2>
-            <p>This application requires microphone access to function properly. Please grant access when prompted.</p>
-            <button class="permission-button" onclick="requestMicrophoneAccess()">Grant Access</button>
-        </div>
-    </div>
-
     <div class="container">
         <iframe class="content-frame" id="contentFrame"></iframe>
     </div>
@@ -116,40 +76,23 @@
     </div>
 
     <script>
+        // Updated file paths to match your directory structure
         const pages = [
             'attempts/soundv1.html',
             'attempts/soundv2.html',
             'attempts/soundv3.html',
+            'attempts/soundv4.html',
             'attempts/soundv5.html',
             'attempts/soundv6.html',
-            'attempts/soundv7.html'
         ];
 
         let currentIndex = 5;
-        let microphoneAccessGranted = false;
         const frame = document.getElementById('contentFrame');
         const prevBtn = document.getElementById('prevBtn');
         const nextBtn = document.getElementById('nextBtn');
         const currentPageSpan = document.getElementById('currentPage');
 
-        async function requestMicrophoneAccess() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                stream.getTracks().forEach(track => track.stop()); // Stop the stream immediately
-                microphoneAccessGranted = true;
-                document.getElementById('permissionOverlay').style.display = 'none';
-                updatePage(); // Load the first page
-            } catch (err) {
-                console.error('Microphone access denied:', err);
-                alert('Microphone access is required for this application to work.');
-            }
-        }
-
         function updatePage() {
-            if (!microphoneAccessGranted) {
-                document.getElementById('permissionOverlay').style.display = 'flex';
-                return;
-            }
             frame.src = pages[currentIndex];
             currentPageSpan.textContent = currentIndex + 1;
             prevBtn.disabled = currentIndex === 0;
@@ -170,6 +113,7 @@
             }
         });
 
+        // Handle keyboard navigation
         document.addEventListener('keydown', (e) => {
             if (e.key === 'ArrowLeft' && currentIndex > 0) {
                 currentIndex--;
@@ -180,7 +124,7 @@
             }
         });
 
-        // Initialize with permission check
+        // Initialize the first page
         updatePage();
     </script>
 </body>
