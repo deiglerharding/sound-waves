@@ -67,7 +67,12 @@
 </head>
 <body>
     <div class="container">
-        <iframe class="content-frame" id="contentFrame"></iframe>
+        <iframe 
+        class="content-frame" 
+        id="contentFrame"
+        allow="microphone"
+        sandbox="allow-scripts allow-same-origin allow-forms"
+        ></iframe>
     </div>
     <div class="navigation">
         <button class="nav-button" id="prevBtn">← Previous</button>
