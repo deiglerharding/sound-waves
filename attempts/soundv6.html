@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        body, html {
+            width: 100vw;
+            height: 100vh;
+            background: #000;
+        }
+        canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+        }
+        #micStatus {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-family: Arial, sans-serif;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="waveCanvas"></canvas>
+    <div id="micStatus">Click to enable microphone</div>
+    <script>
+        const canvas = document.getElementById('waveCanvas');
+        const ctx = canvas.getContext('2d');
+        const micStatus = document.getElementById('micStatus');
+
+        // Audio analysis variables
+        let audioContext;
+        let analyser;
+        let dataArray;
+        let audioLevel = 0;
+        let bassLevel = 0;
+        let midLevel = 0;
+        let trebleLevel = 0;
+
+        async function setupAudio() {
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                const source = audioContext.createMediaStreamSource(stream);
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 2048;
+                analyser.smoothingTimeConstant = 0.85;
+                source.connect(analyser);
+                
+                dataArray = new Uint8Array(analyser.frequencyBinCount);
+                micStatus.textContent = 'Microphone active';
+                
+            } catch (err) {
+                console.error('Error accessing microphone:', err);
+                micStatus.textContent = 'Error accessing microphone';
+            }
+        }
+
+        micStatus.addEventListener('click', setupAudio);
+
+        function analyzeAudio() {
+            if (!analyser) return;
+
+            analyser.getByteFrequencyData(dataArray);
+            
+            const bass = dataArray.slice(0, 10).reduce((a, b) => a + b, 0) / 3000 * 5;
+            const mids = dataArray.slice(10, 100).reduce((a, b) => a + b, 0) / 25000 * 5;
+            const treble = dataArray.slice(100, 200).reduce((a, b) => a + b, 0) / 28000 * 5;
+            
+            bassLevel = bassLevel * 0.85 + bass * 0.15;
+            midLevel = midLevel * 0.85 + mids * 0.15;
+            trebleLevel = trebleLevel * 0.85 + treble * 0.15;
+            
+            const targetAudioLevel = (bassLevel + midLevel + trebleLevel) / 3;
+            audioLevel = audioLevel * 0.9 + targetAudioLevel * 0.1;
+        }
+
+        function resizeCanvas() {
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = window.innerWidth * dpr;
+            canvas.height = window.innerHeight * dpr;
+            ctx.scale(dpr, dpr);
+        }
+
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        const params = {
+            circles: 40,
+            points: 180,
+            radialLines: 24,
+            baseRadius: Math.min(window.innerWidth, window.innerHeight) * 0.045,
+            maxRadius: Math.min(window.innerWidth, window.innerHeight) * 0.6,
+            centerX: window.innerWidth / 2,
+            centerY: window.innerHeight / 2,
+            waveAmplitude: 5,
+            perspective: 1.2
+        };
+
+        function createGradient(hue, alpha) {
+            const gradient = ctx.createRadialGradient(
+                params.centerX, params.centerY, 0,
+                params.centerX, params.centerY, params.maxRadius
+            );
+            
+            gradient.addColorStop(0, `hsla(${hue}, 40%, 85%, ${alpha * 1.5})`);
+            gradient.addColorStop(0.3, `hsla(${(hue + 15) % 360}, 35%, 80%, ${alpha * 1.3})`);
+            gradient.addColorStop(0.6, `hsla(${(hue + 30) % 360}, 30%, 75%, ${alpha * 1.1})`);
+            gradient.addColorStop(1, `hsla(${(hue + 45) % 360}, 25%, 70%, ${alpha})`);
+            
+            return gradient;
+        }
+
+        function drawSphere(centerX, centerY, radius, time, audioLevel) {
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius * (1 + audioLevel * 0.3), 0, Math.PI * 2);
+            
+            const gradient = ctx.createRadialGradient(
+                centerX, centerY, 0,
+                centerX, centerY, radius * (1 + audioLevel * 0.3)
+            );
+            
+            const hue = (time * 10) % 360;
+            gradient.addColorStop(0, `hsla(${hue}, 30%, 90%, 1)`);
+            gradient.addColorStop(0.3, `hsla(${(hue + 15) % 360}, 25%, 85%, 0.95)`);
+            gradient.addColorStop(0.5, `hsla(${(hue + 30) % 360}, 20%, 80%, 0.9)`);
+            gradient.addColorStop(0.7, `hsla(${(hue + 45) % 360}, 15%, 75%, 0.7)`);
+            gradient.addColorStop(0.9, `hsla(${(hue + 60) % 360}, 10%, 70%, 0.3)`);
+            gradient.addColorStop(1, `hsla(${(hue + 75) % 360}, 5%, 65%, 0)`);
+            
+            ctx.fillStyle = gradient;
+            ctx.fill();
+        }
+
+        function drawRadialLines(time, currentRadius, progress, baseHue, alpha) {
+            const angleStep = (Math.PI * 2) / params.radialLines;
+            
+            for (let i = 0; i < params.radialLines; i++) {
+                const angle = i * angleStep;
+                
+                const startRadius = params.baseRadius * (1 + audioLevel * 0.3);
+                const baseEndRadius = currentRadius * 0.98;
+                
+                ctx.beginPath();
+                
+                const segments = 20;
+                for (let j = 0; j <= segments; j++) {
+                    const t = j / segments;
+                    const baseRadius = startRadius + (baseEndRadius - startRadius) * t;
+                    
+                    // Use the same wave factor calculation as the rings
+                    const waveFactor = 1 + (
+                        Math.sin(time * 2 + progress * 4) * 0.1 * audioLevel +
+                        Math.cos(angle * 3 + time) * 0.1 * bassLevel +
+                        Math.sin(angle * 5 - time * 1.5) * 0.1 * midLevel
+                    );
+                    
+                    const radius = baseRadius * waveFactor;
+                    // Add a dynamic tilt based on audio levels
+                    const tiltAmount = (bassLevel * 0.2 + midLevel * 0.1) * Math.sin(time * 2);
+                    const waveOffset = Math.sin(t * Math.PI * 3 + time * 2) * 0.1 * (bassLevel + midLevel);
+                    const currentAngle = angle + tiltAmount + waveOffset;
+                    
+                    const x = params.centerX + Math.cos(currentAngle) * radius;
+                    const y = params.centerY + Math.sin(currentAngle) * radius;
+                    
+                    if (j === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                }
+                
+                const lineGradient = ctx.createLinearGradient(
+                    params.centerX + Math.cos(angle) * startRadius,
+                    params.centerY + Math.sin(angle) * startRadius,
+                    params.centerX + Math.cos(angle) * baseEndRadius,
+                    params.centerY + Math.sin(angle) * baseEndRadius
+                );
+
+                const startHue = (baseHue + time * 10) % 360;
+                const midHue = (startHue + 20) % 360;
+                const endHue = (startHue + 40) % 360;
+                
+                const audioReactiveAlpha = alpha * (1 + audioLevel * 0.3);
+                
+                lineGradient.addColorStop(0, `hsla(${startHue}, 25%, 90%, ${audioReactiveAlpha})`);
+                lineGradient.addColorStop(0.3, `hsla(${(startHue + 10) % 360}, 20%, 85%, ${audioReactiveAlpha * 0.9})`);
+                lineGradient.addColorStop(0.5, `hsla(${midHue}, 15%, 80%, ${audioReactiveAlpha * 0.8})`);
+                lineGradient.addColorStop(0.7, `hsla(${(endHue - 10) % 360}, 10%, 75%, ${audioReactiveAlpha * 0.6})`);
+                lineGradient.addColorStop(1, `hsla(${endHue}, 5%, 70%, ${audioReactiveAlpha * 0.4})`);
+                
+                ctx.strokeStyle = lineGradient;
+                ctx.lineWidth = (1.5 * (1 - progress)) * (1 + audioLevel * 0.2);
+                ctx.stroke();
+            }
+        }
+
+        function drawRadialWaves(time) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            analyzeAudio();
+
+            for (let circle = 0; circle < params.circles; circle++) {
+                const progress = circle / params.circles;
+                const baseRadius = params.baseRadius + (params.maxRadius - params.baseRadius) * progress;
+                
+                ctx.beginPath();
+                const hue = (time * 15 + circle * 8) % 360;
+                const alpha = Math.pow(1 - progress, 0.7) * 0.7;
+                ctx.strokeStyle = createGradient(hue, alpha);
+                ctx.lineWidth = 2 * (1 - progress);
+
+                for (let i = 0; i <= params.points; i++) {
+                    const angle = (i / params.points) * Math.PI * 2;
+                    const waveFactor = 1 + (
+                        Math.sin(time * 2 + progress * 4) * 0.1 * audioLevel +
+                        Math.cos(angle * 3 + time) * 0.1 * bassLevel +
+                        Math.sin(angle * 5 - time * 1.5) * 0.1 * midLevel
+                    );
+                    
+                    const radius = baseRadius * waveFactor;
+                    const x = params.centerX + Math.cos(angle) * radius;
+                    const y = params.centerY + Math.sin(angle) * radius;
+
+                    if (i === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                }
+                
+                ctx.closePath();
+                ctx.stroke();
+
+                if (circle % 2 === 0) {
+                    drawRadialLines(time, baseRadius, progress, hue, alpha);
+                }
+            }
+            
+            drawSphere(params.centerX, params.centerY, params.baseRadius, time, audioLevel);
+        }
+
+        let time = 0;
+        let lastTime = 0;
+
+        function animate(currentTime) {
+            const deltaTime = (currentTime - lastTime) / 1000;
+            lastTime = currentTime;
+            
+            time += Math.min(deltaTime * 1.5, 0.016);
+            drawRadialWaves(time);
+            requestAnimationFrame(animate);
+        }
+
+        animate(0);
+    </script>
+</body>
+</html>

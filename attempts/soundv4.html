@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        body, html {
+            width: 100vw;
+            height: 100vh;
+            background: #000;
+        }
+        canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+        }
+        #micStatus {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-family: Arial, sans-serif;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="waveCanvas"></canvas>
+    <div id="micStatus">Click to enable microphone</div>
+    <script>
+        const canvas = document.getElementById('waveCanvas');
+        const ctx = canvas.getContext('2d');
+        const micStatus = document.getElementById('micStatus');
+
+        // Audio analysis variables
+        let audioContext;
+        let analyser;
+        let dataArray;
+        let audioLevel = 0;
+        let bassLevel = 0;
+        let midLevel = 0;
+        let trebleLevel = 0;
+
+        // Wave propagation array to store wave states
+        const waveStates = [];
+        const propagationSpeed = 0.4; // Slightly reduced for smoother propagation
+        const waveMemory = 60; // Increased memory for smoother transitions
+
+        async function setupAudio() {
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                const source = audioContext.createMediaStreamSource(stream);
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 2048;
+                analyser.smoothingTimeConstant = 0.85; // Increased smoothing
+                source.connect(analyser);
+                
+                dataArray = new Uint8Array(analyser.frequencyBinCount);
+                micStatus.textContent = 'Microphone active';
+                
+            } catch (err) {
+                console.error('Error accessing microphone:', err);
+                micStatus.textContent = 'Error accessing microphone';
+            }
+        }
+
+        micStatus.addEventListener('click', setupAudio);
+
+        function analyzeAudio() {
+            if (!analyser) return;
+
+            analyser.getByteFrequencyData(dataArray);
+            
+            // Calculate different frequency bands with additional dampening factor of 0.8
+            const bass = dataArray.slice(0, 10).reduce((a, b) => a + b, 0) / 3000 * 0.4; // Dampened bass
+            const mids = dataArray.slice(10, 100).reduce((a, b) => a + b, 0) / 25000 * 0.4; // Dampened mids
+            const treble = dataArray.slice(100, 200).reduce((a, b) => a + b, 0) / 28000 * 0.4; // Dampened treble
+            
+            // Increased smoothing factor for levels
+            bassLevel = bassLevel * 0.85 + bass * 0.15;
+            midLevel = midLevel * 0.85 + mids * 0.15;
+            trebleLevel = trebleLevel * 0.85 + treble * 0.15;
+            
+            // Overall audio level with additional smoothing
+            const targetAudioLevel = (bassLevel + midLevel + trebleLevel) / 3;
+            audioLevel = audioLevel * 0.9 + targetAudioLevel * 0.1;
+
+            // Store current audio state
+            waveStates.unshift({
+                bassLevel,
+                midLevel,
+                trebleLevel,
+                audioLevel,
+                time: performance.now()
+            });
+
+            if (waveStates.length > waveMemory) {
+                waveStates.pop();
+            }
+        }
+
+        function resizeCanvas() {
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = window.innerWidth * dpr;
+            canvas.height = window.innerHeight * dpr;
+            ctx.scale(dpr, dpr);
+        }
+
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        const getParams = () => ({
+            points: Math.max(250, Math.floor(window.innerWidth / 4)), // Increased points for smoother curves
+            rows: Math.max(40, Math.floor(window.innerHeight / 12)),
+            baseAmplitude: Math.min(window.innerHeight / 32, 18), // Slightly reduced base amplitude
+            rowSpacing: Math.min(window.innerHeight / 65, 8),
+            perspective: 1.5,
+            baseFrequency: 0.012 * (1000 / window.innerWidth) // Reduced frequency for smoother waves
+        });
+
+        const decayFactor = 0.96; // Increased decay factor for smoother falloff
+        const propagationDelay = 0.12; // Reduced delay for smoother propagation
+        let baseTurbulence = 0.15; // Reduced turbulence
+
+        function smoothStep(x) {
+            return x * x * x * (x * (x * 6 - 15) + 10); // Smoother interpolation
+        }
+
+        function createGradient(hue, z) {
+            const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
+            const baseHue = (hue + 180) % 360;
+            const saturation = 70;
+            const lightness = 65;
+            
+            gradient.addColorStop(0, `hsla(${hue}, ${saturation}%, ${lightness}%, ${z * 0.8})`);
+            gradient.addColorStop(0.3, `hsla(${(hue + 30) % 360}, ${saturation}%, ${lightness}%, ${z * 0.8})`);
+            gradient.addColorStop(0.7, `hsla(${(hue + 90) % 360}, ${saturation}%, ${lightness}%, ${z * 0.8})`);
+            gradient.addColorStop(1, `hsla(${baseHue}, ${saturation}%, ${lightness}%, ${z * 0.8})`);
+            
+            return gradient;
+        }
+
+        function getWaveStateAtPosition(x, currentTime) {
+            const timeOffset = (x + 1) * propagationSpeed;
+            const targetTime = currentTime - timeOffset;
+            
+            const state = waveStates.find(s => s.time <= targetTime) || waveStates[waveStates.length - 1] || {
+                bassLevel: 0,
+                midLevel: 0,
+                trebleLevel: 0,
+                audioLevel: 0
+            };
+            
+            return state;
+        }
+
+        function drawWave(time) {
+            const params = getParams();
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.lineWidth = 1.5; // Slightly thicker lines for smoother appearance
+
+            analyzeAudio();
+
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const currentTime = performance.now();
+
+            for (let row = 0; row < params.rows; row++) {
+                ctx.beginPath();
+                
+                const z = 1 - (row / params.rows);
+                const scale = Math.pow(z * params.perspective, 2);
+                const rowTime = time - (row * propagationDelay);
+                const baseAmplitude = params.baseAmplitude * Math.pow(decayFactor, row);
+                
+                const hue = (time * 15 + row * 6) % 360; // Slower color cycling
+                ctx.strokeStyle = createGradient(hue, z);
+                
+                for (let i = 0; i <= params.points; i++) {
+                    const progress = i / params.points;
+                    const x = progress * 2 - 1;
+                    const screenX = x * canvas.width / 2;
+                    
+                    const state = getWaveStateAtPosition(x, currentTime);
+                    const amplitudeMultiplier = 1 + (state.audioLevel * 1.8); // Reduced multiplier
+                    const turbulence = baseTurbulence + (state.bassLevel * 0.4); // Reduced turbulence impact
+                    const frequencyOffset = state.midLevel * 0.4; // Reduced frequency variation
+
+                    let y = baseAmplitude * amplitudeMultiplier * Math.sin(screenX * (params.baseFrequency + frequencyOffset) + rowTime);
+                    
+                    // Reduced harmonic influence
+                    const harmonic1 = Math.sin(screenX * params.baseFrequency * 1.5 + rowTime * 1.2) * 0.3;
+                    const harmonic2 = Math.sin(screenX * params.baseFrequency * 2.2 + rowTime * 0.8) * 0.15;
+                    
+                    y += baseAmplitude * amplitudeMultiplier * harmonic1;
+                    y += baseAmplitude * amplitudeMultiplier * harmonic2;
+                    
+                    const turbulenceEffect = turbulence * (1 - z) * Math.sin(rowTime * 1.5);
+                    y += turbulenceEffect * smoothStep(Math.sin(screenX * 0.006 + rowTime * 0.4) * 0.5 + 0.5);
+                    
+                    const verticalOffset = (params.rows * params.rowSpacing) / 2;
+                    const yPos = y - (row * params.rowSpacing - verticalOffset);
+                    
+                    const projectedX = centerX + screenX * scale;
+                    const projectedY = centerY - (yPos * scale);
+
+                    if (i === 0) {
+                        ctx.moveTo(projectedX, projectedY);
+                    } else {
+                        ctx.lineTo(projectedX, projectedY);
+                    }
+                }
+                
+                ctx.shadowBlur = 3 * z; // Reduced shadow for cleaner appearance
+                ctx.shadowColor = `hsla(${hue}, 70%, 60%, ${z * 0.2})`;
+                
+                ctx.stroke();
+            }
+        }
+
+        let time = 0;
+        let lastTime = 0;
+        function animate(currentTime) {
+            const deltaTime = (currentTime - lastTime) / 1000;
+            lastTime = currentTime;
+            
+            time += Math.min(deltaTime * 1.8, 0.018); // Slightly slower time progression
+            drawWave(time);
+            requestAnimationFrame(animate);
+        }
+
+        animate(0);
+    </script>
+</body>
+</html>

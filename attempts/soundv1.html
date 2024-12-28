@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        canvas {
+            background: #000;
+        }
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: #111;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="waveCanvas"></canvas>
+    <script>
+        const canvas = document.getElementById('waveCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Set canvas size
+        canvas.width = 800;
+        canvas.height = 600;
+
+        // Wave parameters
+        const waves = 3;
+        const points = 50;
+        const rows = 20;
+        const amplitude = 30;
+        const frequency = 0.02;
+        const rowSpacing = 15;
+        const perspective = 1.5;
+
+        function createGradient(hue, z) {
+            const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
+            const baseHue = (hue + 180) % 360; // Complementary color
+            const saturation = 80;
+            const lightness = 60;
+            
+            gradient.addColorStop(0, `hsla(${hue}, ${saturation}%, ${lightness}%, ${z})`);
+            gradient.addColorStop(0.5, `hsla(${(hue + 60) % 360}, ${saturation}%, ${lightness}%, ${z})`);
+            gradient.addColorStop(1, `hsla(${baseHue}, ${saturation}%, ${lightness}%, ${z})`);
+            
+            return gradient;
+        }
+
+        function drawWave(time) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.lineWidth = 2;
+
+            // Center the wave
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+
+            // Draw each row of the wave
+            for (let row = 0; row < rows; row++) {
+                ctx.beginPath();
+                
+                // Calculate z-position for perspective
+                const z = 1 - (row / rows);
+                const scale = Math.pow(z * perspective, 2);
+                
+                // Calculate hue based on time and row
+                const hue = (time * 50 + row * 15) % 360;
+                ctx.strokeStyle = createGradient(hue, z);
+                
+                // Draw the wave points
+                for (let i = 0; i <= points; i++) {
+                    const x = (i / points) * canvas.width - canvas.width / 2;
+                    
+                    // Create wave motion
+                    const y = Math.sin(x * frequency + time + row * 0.3) * amplitude;
+                    
+                    // Apply perspective transformation
+                    const projectedX = centerX + x * scale;
+                    const projectedY = centerY + (y - row * rowSpacing) * scale;
+
+                    if (i === 0) {
+                        ctx.moveTo(projectedX, projectedY);
+                    } else {
+                        ctx.lineTo(projectedX, projectedY);
+                    }
+                }
+                ctx.stroke();
+            }
+
+            // Add glow effect
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = `hsla(${(time * 50) % 360}, 80%, 60%, 0.5)`;
+        }
+
+        // Animation loop
+        let time = 0;
+        function animate() {
+            time += 0.05;
+            drawWave(time);
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+</html>

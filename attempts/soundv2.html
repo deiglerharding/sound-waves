@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        canvas {
+            background: #000;
+        }
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: #111;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="waveCanvas"></canvas>
+    <script>
+        const canvas = document.getElementById('waveCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Set canvas size
+        canvas.width = 800;
+        canvas.height = 600;
+
+        // Wave parameters
+        const waves = 5;
+        const points = 80;
+        const rows = 35;
+        const baseAmplitude = 25;
+        const baseFrequency = 0.02;
+        const rowSpacing = 10;
+        const perspective = 1.5;
+
+        // Reverberation parameters
+        const decayFactor = 0.92;
+        const propagationDelay = 0.2;
+        const turbulence = 0.3;
+
+        function createGradient(hue, z) {
+            const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
+            const baseHue = (hue + 180) % 360;
+            const saturation = 70;
+            const lightness = 65;
+            
+            gradient.addColorStop(0, `hsla(${hue}, ${saturation}%, ${lightness}%, ${z * 0.8})`);
+            gradient.addColorStop(0.5, `hsla(${(hue + 60) % 360}, ${saturation}%, ${lightness}%, ${z * 0.8})`);
+            gradient.addColorStop(1, `hsla(${baseHue}, ${saturation}%, ${lightness}%, ${z * 0.8})`);
+            
+            return gradient;
+        }
+
+        function drawWave(time) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.lineWidth = 1.5;
+
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+
+            // Draw each row of waves
+            for (let row = 0; row < rows; row++) {
+                ctx.beginPath();
+                
+                // Calculate depth and scale
+                const z = 1 - (row / rows);
+                const scale = Math.pow(z * perspective, 2);
+                
+                // Calculate wave properties with decay and delay
+                const rowTime = time - (row * propagationDelay);
+                const decayedAmplitude = baseAmplitude * Math.pow(decayFactor, row);
+                
+                // Add turbulence based on depth
+                const turbulenceEffect = turbulence * (1 - z) * Math.sin(rowTime * 2);
+                
+                // Calculate hue with depth variation
+                const hue = (time * 30 + row * 8) % 360;
+                ctx.strokeStyle = createGradient(hue, z);
+                
+                // Draw the wave points
+                for (let i = 0; i <= points; i++) {
+                    const x = (i / points) * canvas.width - canvas.width / 2;
+                    
+                    // Create complex wave motion with multiple frequencies
+                    let y = decayedAmplitude * Math.sin(x * baseFrequency + rowTime);
+                    // Add secondary waves
+                    y += decayedAmplitude * 0.5 * Math.sin(x * baseFrequency * 2 + rowTime * 1.5);
+                    y += decayedAmplitude * 0.3 * Math.sin(x * baseFrequency * 3 + rowTime * 0.7);
+                    // Add turbulence
+                    y += turbulenceEffect * Math.sin(x * 0.01 + rowTime);
+                    
+                    // Apply perspective transformation
+                    const projectedX = centerX + x * scale;
+                    const projectedY = centerY + (y - row * rowSpacing) * scale;
+
+                    if (i === 0) {
+                        ctx.moveTo(projectedX, projectedY);
+                    } else {
+                        ctx.lineTo(projectedX, projectedY);
+                    }
+                }
+                
+                // Add subtle glow effect that varies with depth
+                ctx.shadowBlur = 5 * z;
+                ctx.shadowColor = `hsla(${hue}, 70%, 60%, ${z * 0.3})`;
+                
+                ctx.stroke();
+            }
+        }
+
+        // Animation loop
+        let time = 0;
+        function animate() {
+            time += 0.03;
+            drawWave(time);
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+</html>

@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        body, html {
+            width: 100vw;
+            height: 100vh;
+            background: #000;
+        }
+        canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+        }
+        #micStatus {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-family: Arial, sans-serif;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="waveCanvas"></canvas>
+    <div id="micStatus">Click to enable microphone</div>
+    <script>
+        const canvas = document.getElementById('waveCanvas');
+        const ctx = canvas.getContext('2d');
+        const micStatus = document.getElementById('micStatus');
+
+        // Audio analysis variables
+        let audioContext;
+        let analyser;
+        let dataArray;
+        let audioLevel = 0;
+        let bassLevel = 0;
+        let midLevel = 0;
+        let trebleLevel = 0;
+
+        async function setupAudio() {
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                const source = audioContext.createMediaStreamSource(stream);
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 2048;
+                source.connect(analyser);
+                
+                dataArray = new Uint8Array(analyser.frequencyBinCount);
+                micStatus.textContent = 'Microphone active';
+                
+            } catch (err) {
+                console.error('Error accessing microphone:', err);
+                micStatus.textContent = 'Error accessing microphone';
+            }
+        }
+
+        micStatus.addEventListener('click', setupAudio);
+
+        function analyzeAudio() {
+            if (!analyser) return;
+
+            analyser.getByteFrequencyData(dataArray);
+            
+            // Calculate different frequency bands
+            const bass = dataArray.slice(0, 10).reduce((a, b) => a + b, 0) / 2550;
+            const mids = dataArray.slice(10, 100).reduce((a, b) => a + b, 0) / 22950;
+            const treble = dataArray.slice(100, 200).reduce((a, b) => a + b, 0) / 25500;
+            
+            // Smooth the levels
+            bassLevel = bassLevel * 0.8 + bass * 0.2;
+            midLevel = midLevel * 0.8 + mids * 0.2;
+            trebleLevel = trebleLevel * 0.8 + treble * 0.2;
+            
+            // Overall audio level
+            audioLevel = (bassLevel + midLevel + trebleLevel) / 3;
+        }
+
+        function resizeCanvas() {
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = window.innerWidth * dpr;
+            canvas.height = window.innerHeight * dpr;
+            ctx.scale(dpr, dpr);
+        }
+
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        const getParams = () => ({
+            points: Math.max(200, Math.floor(window.innerWidth / 4)),
+            rows: Math.max(40, Math.floor(window.innerHeight / 12)),
+            baseAmplitude: Math.min(window.innerHeight / 22, 28),
+            rowSpacing: Math.min(window.innerHeight / 55, 10),
+            perspective: 1.5,
+            baseFrequency: 0.015 * (1000 / window.innerWidth)
+        });
+
+        const decayFactor = 0.94;
+        const propagationDelay = 0.15;
+        let baseTurbulence = 0.2;
+
+        function smoothStep(x) {
+            return x * x * (3 - 2 * x);
+        }
+
+        function createGradient(hue, z) {
+            const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
+            const baseHue = (hue + 180) % 360;
+            const saturation = 70;
+            const lightness = 65;
+            
+            gradient.addColorStop(0, `hsla(${hue}, ${saturation}%, ${lightness}%, ${z * 0.8})`);
+            gradient.addColorStop(0.3, `hsla(${(hue + 30) % 360}, ${saturation}%, ${lightness}%, ${z * 0.8})`);
+            gradient.addColorStop(0.7, `hsla(${(hue + 90) % 360}, ${saturation}%, ${lightness}%, ${z * 0.8})`);
+            gradient.addColorStop(1, `hsla(${baseHue}, ${saturation}%, ${lightness}%, ${z * 0.8})`);
+            
+            return gradient;
+        }
+
+        function drawWave(time) {
+            const params = getParams();
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.lineWidth = 1.2;
+
+            analyzeAudio();
+
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+
+            // Adjust parameters based on audio
+            const amplitudeMultiplier = 1 + (audioLevel * 2);
+            const turbulence = baseTurbulence + (bassLevel * 0.5);
+            const frequencyOffset = midLevel * 0.5;
+            const colorSpeed = 20 + (trebleLevel * 30);
+
+            for (let row = 0; row < params.rows; row++) {
+                ctx.beginPath();
+                
+                const z = 1 - (row / params.rows);
+                const scale = Math.pow(z * params.perspective, 2);
+                const rowTime = time - (row * propagationDelay);
+                const decayedAmplitude = params.baseAmplitude * Math.pow(decayFactor, row) * amplitudeMultiplier;
+                
+                const turbulenceEffect = turbulence * (1 - z) * Math.sin(rowTime * 1.5);
+                
+                const hue = (time * colorSpeed + row * 6) % 360;
+                ctx.strokeStyle = createGradient(hue, z);
+                
+                for (let i = 0; i <= params.points; i++) {
+                    const progress = i / params.points;
+                    const x = progress * canvas.width - canvas.width / 2;
+                    
+                    let y = decayedAmplitude * Math.sin(x * (params.baseFrequency + frequencyOffset) + rowTime);
+                    
+                    const harmonic1 = Math.sin(x * params.baseFrequency * 1.5 + rowTime * 1.2);
+                    const harmonic2 = Math.sin(x * params.baseFrequency * 2.2 + rowTime * 0.8);
+                    
+                    y += decayedAmplitude * 0.4 * harmonic1;
+                    y += decayedAmplitude * 0.2 * harmonic2;
+                    
+                    y += turbulenceEffect * smoothStep(Math.sin(x * 0.008 + rowTime * 0.5) * 0.5 + 0.5);
+                    
+                    const projectedX = centerX + x * scale;
+                    const projectedY = centerY + (y - row * params.rowSpacing) * scale;
+
+                    if (i === 0) {
+                        ctx.moveTo(projectedX, projectedY);
+                    } else {
+                        ctx.lineTo(projectedX, projectedY);
+                    }
+                }
+                
+                ctx.shadowBlur = 4 * z;
+                ctx.shadowColor = `hsla(${hue}, 70%, 60%, ${z * 0.25})`;
+                
+                ctx.stroke();
+            }
+        }
+
+        let time = 0;
+        let lastTime = 0;
+        function animate(currentTime) {
+            const deltaTime = (currentTime - lastTime) / 1000;
+            lastTime = currentTime;
+            
+            time += Math.min(deltaTime * 2, 0.02);
+            drawWave(time);
+            requestAnimationFrame(animate);
+        }
+
+        animate(0);
+    </script>
+</body>
+</html>
